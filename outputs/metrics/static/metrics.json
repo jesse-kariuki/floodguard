@@ -1,0 +1,53 @@
+[
+  {
+    "model": "H_rf",
+    "n_rows": 72882,
+    "n_events": 171,
+    "n_positive": 13903,
+    "prevalence": 0.19076040723361049,
+    "threshold": 0.5,
+    "precision": 0.6178513654962413,
+    "recall": 0.46702150614975185,
+    "f1": 0.5319514992626577,
+    "pr_auc": 0.5777786131098961,
+    "brier": 0.12750660987353776,
+    "events_with_positives": 162,
+    "event_detection_rate": 0.8765432098765432,
+    "events_with_negatives": 171,
+    "event_false_alarm_rate": 0.847953216374269
+  },
+  {
+    "model": "H_logreg",
+    "n_rows": 72882,
+    "n_events": 171,
+    "n_positive": 13903,
+    "prevalence": 0.19076040723361049,
+    "threshold": 0.5,
+    "precision": 0.27473688181372363,
+    "recall": 0.5238437747248795,
+    "f1": 0.3604374938137187,
+    "pr_auc": 0.3038434181528148,
+    "brier": 0.23381575601161506,
+    "events_with_positives": 162,
+    "event_detection_rate": 0.9876543209876543,
+    "events_with_negatives": 171,
+    "event_false_alarm_rate": 0.9941520467836257
+  },
+  {
+    "model": "rule_low_elevation",
+    "n_rows": 72882,
+    "n_events": 171,
+    "n_positive": 13903,
+    "prevalence": 0.19076040723361049,
+    "threshold": 0.5,
+    "precision": 0.20177938786926294,
+    "recall": 0.5448464360210027,
+    "f1": 0.29449498483788195,
+    "pr_auc": 0.256887402041131,
+    "brier": NaN,
+    "events_with_positives": 162,
+    "event_detection_rate": 0.5740740740740741,
+    "events_with_negatives": 171,
+    "event_false_alarm_rate": 0.5672514619883041
+  }
+]

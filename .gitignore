@@ -1,0 +1,18 @@
+/data/raw/osm_shapefiles
+# Python / tooling junk
+__pycache__/
+*.pyc
+.venv/
+.tmp/
+.freebuff/
+logs/
+src/cache/
+
+# Unused test copies of the models
+models/*_test.joblib
+
+
+# AI coding tool settings and notes
+.claude/
+AGENTS.md
+CLAUDE.md

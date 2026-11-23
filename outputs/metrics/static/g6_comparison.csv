@@ -1,0 +1,4 @@
+baseline,candidate,mean_pr_auc_diff,ci95_low,ci95_high,valid_replicates,verdict
+rule_low_elevation,H_logreg,0.044904420540699916,0.016305204522985985,0.07234259671592047,1000,improvement (CI above 0)
+rule_low_elevation,H_rf,0.31808701382833976,0.27466487590974675,0.3595069594356066,1000,improvement (CI above 0)
+H_logreg,H_rf,0.2731825932876399,0.23916247976453167,0.30960564393289086,1000,improvement (CI above 0)
