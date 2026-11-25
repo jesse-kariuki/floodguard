@@ -91,6 +91,8 @@ and TAHMO are worth approaching for access.
 | `GET /api/v1/roads/at-risk?min_level=` | Named roads at or above a level |
 | `GET /api/v1/map/roads` | Every road segment as GeoJSON coloured by susceptibility tier (gzip, ETag); used by the Android map |
 | `GET /api/v1/alerts/official` | Active Kenya Met alerts and GDACS events |
+| `GET /api/v1/replay?date=&source=` | Replay a past date: zone rain, alert level per zone and tier, and the documented flood it belongs to |
+| `GET /api/v1/replay/timeline?source=` | Alert band for every archived day, alert spells, and which documented floods were caught |
 | `POST /api/v1/subscribers` | Start a subscription; sends a code |
 | `POST /api/v1/subscribers/verify` | Confirm the code; returns a token |
 | `GET`, `PATCH`, `DELETE /api/v1/subscribers/me` | Manage or delete a subscription (Bearer token) |
@@ -101,6 +103,29 @@ and TAHMO are worth approaching for access.
 | `GET /admin/stats` | Subscribers, deliveries, cycles |
 
 For a dry demo day, use `/admin/drill`. It changes no live state and marks any SMS as a drill.
+
+## Replay
+
+Replay shows what FloodGuard would have shown on any day from 2024-02-01 to 2026-11-05, using Open-Meteo forecasts
+as they were issued at the time (not hindsight). Each zone-hour goes through the live rules in `app/risk.py`, and
+each day keeps its worst hour, the same rule the backtest scores. So replay reproduces `evidence/VALIDATION.md`:
+6 of 7 documented floods caught on day-ahead forecasts. River discharge is left out because past forecasts of it
+are not available. Replay is read-only and never sends SMS.
+
+Replay counts a few more alert days than the backtest (118 against 112 day-ahead, over 1,009 days). Replay applies
+the live wet-ground rule to the neighbourhood rain that sets the band; the backtest applied it to each zone's own
+rain. Detection is identical: the same 6 floods, each with an alert the day before, and E5 missed.
+
+`source=day_ahead` (the default) uses forecasts issued about a day ahead. `source=latest_run` uses the latest run
+before each hour, which is closer to hourly live monitoring.
+
+The data is `assets/replay_daily.json.gz`, which is committed. To rebuild it, for example after adding events to
+`evidence/flood_events.csv` or changing the rules:
+
+```powershell
+.venv\Scripts\python -m scripts.backtest        # fills evidence/cache (not committed), about 10 min
+.venv\Scripts\python -m scripts.export_replay
+```
 
 ## Before launch
 

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ZoomOutMap
@@ -74,6 +75,12 @@ import ke.floodguard.app.ui.common.REASON_TEXT
 import ke.floodguard.app.ui.common.StaleBanner
 import ke.floodguard.app.ui.common.TierBadge
 import ke.floodguard.app.ui.common.formatAge
+import ke.floodguard.app.ui.replay.ReplayRoadSheet
+import ke.floodguard.app.ui.replay.ReplayTopPanel
+import ke.floodguard.app.ui.replay.ReplayVerdictCard
+import ke.floodguard.app.ui.replay.ReplayVerdictChip
+import ke.floodguard.app.ui.replay.ReplayViewModel
+import ke.floodguard.app.ui.replay.formatDay
 import ke.floodguard.app.ui.common.mm
 import ke.floodguard.app.ui.theme.FgColors
 import ke.floodguard.app.ui.theme.tierColor
@@ -85,7 +92,7 @@ private fun tierLabel(code: String?) = TIER_CHIPS.firstOrNull { it.first == code
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapScreen(vm: MapViewModel, locator: Locator, modifier: Modifier = Modifier) {
+fun MapScreen(vm: MapViewModel, replayVm: ReplayViewModel, locator: Locator, modifier: Modifier = Modifier) {
     val roads by vm.roads.collectAsState()
     val zones by vm.zones.collectAsState()
     val selection by vm.selection.collectAsState()
@@ -97,6 +104,25 @@ fun MapScreen(vm: MapViewModel, locator: Locator, modifier: Modifier = Modifier)
     var locationError by remember { mutableStateOf<String?>(null) }
     val focus by vm.focus.collectAsState()
     val roadsOffline by vm.roadsOffline.collectAsState()
+    val replaying by replayVm.active.collectAsState()
+    val replayDay by replayVm.day.collectAsState()
+    val replayPick by replayVm.pick.collectAsState()
+    val replayDate by replayVm.date.collectAsState()
+    val replayExpanded by replayVm.expanded.collectAsState()
+    // The levels the map has actually finished drawing. Until they match the loaded day, keep the loading pill up.
+    var drawnLevels by remember { mutableStateOf<Map<String, Map<String, Int>?>?>(null) }
+    // Keep the last replayed colours on screen while the next date loads, instead of flashing back to tiers.
+    // If that load fails, drop them: the old day's colours must never sit under the new date's label.
+    var replayLevels by remember { mutableStateOf<Map<String, Map<String, Int>?>?>(null) }
+    LaunchedEffect(replayDay, replaying) {
+        val d = replayDay
+        replayLevels = when {
+            !replaying -> null
+            d is Load.Ready -> d.value.levels
+            d is Load.Failed -> emptyMap()      // every road "no data" grey
+            else -> replayLevels
+        }
+    }
 
     LaunchedEffect(focus, roads) {
         val road = focus ?: return@LaunchedEffect
@@ -129,71 +155,131 @@ fun MapScreen(vm: MapViewModel, locator: Locator, modifier: Modifier = Modifier)
             controller = controller,
             roads = (roads as? Load.Ready)?.value,
             visibleTiers = tiers,
-            pin = selection?.let { it.latitude to it.longitude },
-            onTap = { lat, lon, name, tier -> vm.select(lat, lon, name, tier) },
+            zoneIds = (zones as? Load.Ready)?.value?.zones?.map { it.zoneId }.orEmpty(),
+            pin = if (replaying) null else selection?.let { it.latitude to it.longitude },
+            onTap = { lat, lon, name, tier, zone ->
+                if (replaying) replayVm.select(name, tier, zone) else vm.select(lat, lon, name, tier)
+            },
             modifier = Modifier.fillMaxSize(),
+            // While replaying, never fall back to susceptibility colours: until a day loads (or if it fails),
+            // every road is "no data" grey, so red High roads cannot be mistaken for a replayed alert.
+            replayLevels = if (replaying) replayLevels ?: emptyMap() else null,
+            onReplayDrawn = { drawnLevels = it },
         )
 
-        Column(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SearchBox(vm, onPick = { r ->
-                controller.flyTo(r.latitude, r.longitude, 15.0)
-                vm.select(r.latitude, r.longitude, r.roadName, null)
-            })
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TIER_CHIPS.forEach { (code, label) ->
-                    FilterChip(
-                        selected = code in tiers,
-                        onClick = { vm.toggleTier(code) },
-                        label = { Text(label) },
-                        leadingIcon = { Box(Modifier.size(10.dp).background(tierColor(code), CircleShape)) },
-                        colors = FilterChipDefaults.filterChipColors(containerColor = Color.White,
-                            selectedContainerColor = Color(0xFFE3EEF7)),
-                    )
-                }
-            }
-            ForecastPill(zones)
-            when (val r = roads) {
-                Load.Loading -> Surface(shape = RoundedCornerShape(12.dp), shadowElevation = 2.dp) {
-                    Column(Modifier.padding(12.dp).fillMaxWidth()) {
-                        Text("Loading the Nairobi road map…", fontSize = 14.sp)
-                        Spacer(Modifier.size(6.dp))
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (replaying) {
+            ReplayTopPanel(replayVm, Modifier.statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp))
+            // Until the new day's levels arrive the map still shows the previous day, so say so in the middle of it.
+            val fetching = replayDay == null || replayDay == Load.Loading
+            val drawing = replayDay is Load.Ready<*> && replayLevels != drawnLevels
+            if (fetching || drawing) {
+                Surface(
+                    Modifier.align(Alignment.Center), shape = RoundedCornerShape(24.dp),
+                    color = Color.White, shadowElevation = 8.dp,
+                ) {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            when {
+                                replayDate == null -> "Loading replay…"
+                                fetching -> "Loading roads for ${formatDay(replayDate.toString())}…"
+                                else -> "Drawing roads for ${formatDay(replayDate.toString())}…"
+                            },
+                            fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                        )
                     }
                 }
-                is Load.Failed -> ErrorBox("Road map: ${r.message}", onRetry = vm::loadRoads)
-                is Load.Ready -> Unit
             }
-            if (roadsOffline) ErrorBox("Showing the road map saved on this phone. It could not be updated.", vm::loadRoads)
-            locationError?.let { ErrorBox(it) }
-        }
-
-        Legend(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(12.dp))
-
-        Column(
-            Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            SmallFloatingActionButton(onClick = { controller.showAllNairobi() }, containerColor = Color.White) {
-                Icon(Icons.Default.ZoomOutMap, contentDescription = "Show all of Nairobi")
-            }
-            SmallFloatingActionButton(
-                onClick = {
-                    if (locator.hasPermission()) goToMyLocation()
-                    else permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION))
-                },
-                containerColor = Color.White,
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(12.dp),
+                horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (locating) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Default.MyLocation, contentDescription = "My location", tint = FgColors.Primary)
+                SmallFloatingActionButton(onClick = { controller.showAllNairobi() }, containerColor = Color.White) {
+                    Icon(Icons.Default.ZoomOutMap, contentDescription = "Show all of Nairobi")
+                }
+                if (replayExpanded) ReplayVerdictCard(replayVm, Modifier.heightIn(max = 280.dp))
+                else ReplayVerdictChip(replayVm)
+            }
+        } else Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SearchBox(vm, onPick = { r ->
+                    controller.flyTo(r.latitude, r.longitude, 15.0)
+                    vm.select(r.latitude, r.longitude, r.roadName, null)
+                })
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TIER_CHIPS.forEach { (code, label) ->
+                        FilterChip(
+                            selected = code in tiers,
+                            onClick = { vm.toggleTier(code) },
+                            label = { Text(label) },
+                            leadingIcon = { Box(Modifier.size(10.dp).background(tierColor(code), CircleShape)) },
+                            colors = FilterChipDefaults.filterChipColors(containerColor = Color.White,
+                                selectedContainerColor = Color(0xFFE3EEF7)),
+                        )
+                    }
+                }
+                ForecastPill(zones)
+                when (val r = roads) {
+                    Load.Loading -> Surface(shape = RoundedCornerShape(12.dp), shadowElevation = 2.dp) {
+                        Column(Modifier.padding(12.dp).fillMaxWidth()) {
+                            Text("Loading the Nairobi road map…", fontSize = 14.sp)
+                            Spacer(Modifier.size(6.dp))
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                    }
+                    is Load.Failed -> ErrorBox("Road map: ${r.message}", onRetry = vm::loadRoads)
+                    is Load.Ready -> Unit
+                }
+                if (roadsOffline) ErrorBox("Showing the road map saved on this phone. It could not be updated.", vm::loadRoads)
+                locationError?.let { ErrorBox(it) }
+            }
+
+            Legend(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(12.dp))
+
+            Column(
+                Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SmallFloatingActionButton(onClick = {
+                    vm.clearSelection()
+                    replayVm.open()
+                    controller.showAllNairobi()
+                }, containerColor = Color.White) {
+                    Icon(Icons.Default.History, contentDescription = "Replay a past day", tint = FgColors.Primary)
+                }
+                SmallFloatingActionButton(onClick = { controller.showAllNairobi() }, containerColor = Color.White) {
+                    Icon(Icons.Default.ZoomOutMap, contentDescription = "Show all of Nairobi")
+                }
+                SmallFloatingActionButton(
+                    onClick = {
+                        if (locator.hasPermission()) goToMyLocation()
+                        else permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION))
+                    },
+                    containerColor = Color.White,
+                ) {
+                    if (locating) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.MyLocation, contentDescription = "My location", tint = FgColors.Primary)
+                }
             }
         }
     }
 
-    selection?.let { sel ->
+    if (replaying) replayPick?.let { pick ->
+        ModalBottomSheet(
+            onDismissRequest = replayVm::clearPick,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+            containerColor = Color.White,
+        ) {
+            ReplayRoadSheet(pick, (replayDay as? Load.Ready)?.value)
+        }
+    }
+
+    if (!replaying) selection?.let { sel ->
         ModalBottomSheet(
             onDismissRequest = vm::clearSelection,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),

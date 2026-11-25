@@ -56,10 +56,13 @@ def export_road_map() -> None:
     """Every road segment as a coloured line for the app's map: one gzipped GeoJSON, served as-is by the API.
 
     Properties are one-letter keys to keep the download small: t = tier (H, M, L, or U for no data),
-    n = road name when it has one, id = segment id.
+    z = weather zone (so replay and scenarios can colour each road by its zone's rain), n = road name when it
+    has one, id = segment id. Zones come from segments.csv.gz, so export that first.
     """
     import geopandas as gpd
 
+    zone_of = pd.read_csv(ASSETS / "segments.csv.gz", usecols=["segment_id", "zone_id"])
+    zone_of = dict(zip(zone_of["segment_id"], zone_of["zone_id"]))
     gdf = gpd.read_file(ROOT / "outputs" / "predictions_H_rf_static.gpkg").to_crs(4326)
     features = []
     for row in gdf.itertuples():
@@ -68,6 +71,8 @@ def export_road_map() -> None:
         if len(coords) < 2:
             continue
         props = {"id": row.segment_id, "t": TIER_CODES.get(row.susceptibility_tier, "U")}
+        if row.segment_id in zone_of:
+            props["z"] = zone_of[row.segment_id]
         if isinstance(row.road_name, str) and row.road_name.strip():
             props["n"] = row.road_name.strip()
         features.append({"type": "Feature", "properties": props,
@@ -86,8 +91,8 @@ def main() -> None:
     ap.add_argument("--map-only", action="store_true", help="only rebuild roads_map.geojson.gz")
     args = ap.parse_args()
     ASSETS.mkdir(exist_ok=True)
-    export_road_map()
     if args.map_only:
+        export_road_map()
         return
 
     pred = pd.read_csv(ROOT / "outputs" / "predictions_H_rf_static.csv")
@@ -102,6 +107,7 @@ def main() -> None:
     seg["lat"], seg["lon"] = seg["lat"].round(5), seg["lon"].round(5)
     with gzip.open(ASSETS / "segments.csv.gz", "wt", encoding="utf-8", newline="") as fh:
         seg.to_csv(fh, index=False)
+    export_road_map()                   # after segments.csv.gz, which gives each road its zone
 
     import geopandas as gpd
     grid = gpd.read_file(ROOT / "config" / "grid_points.gpkg")[["location_id", "latitude", "longitude"]]

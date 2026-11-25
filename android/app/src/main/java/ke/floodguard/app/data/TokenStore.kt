@@ -12,10 +12,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/**
- * The subscriber token, encrypted with an AES key that never leaves the Android Keystore.
- * Only a verified number ever gets a token.
- */
 class TokenStore(context: Context) {
     private val prefs = context.getSharedPreferences("floodguard.session", Context.MODE_PRIVATE)
     private val _token = MutableStateFlow(load())
@@ -38,7 +34,7 @@ class TokenStore(context: Context) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, sealed, 0, IV_BYTES))
         String(cipher.doFinal(sealed, IV_BYTES, sealed.size - IV_BYTES), Charsets.UTF_8)
-    }.getOrNull()               // a wiped or rotated key just means signing in again
+    }.getOrNull()
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }

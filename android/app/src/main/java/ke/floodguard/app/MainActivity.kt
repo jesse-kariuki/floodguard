@@ -33,6 +33,7 @@ import ke.floodguard.app.ui.alerts.AlertsScreen
 import ke.floodguard.app.ui.alerts.AlertsViewModel
 import ke.floodguard.app.ui.map.MapScreen
 import ke.floodguard.app.ui.map.MapViewModel
+import ke.floodguard.app.ui.replay.ReplayViewModel
 import ke.floodguard.app.ui.sms.SmsScreen
 import ke.floodguard.app.ui.sms.SmsViewModel
 import ke.floodguard.app.ui.theme.FgColors
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             FloodGuardTheme {
                 val mapVm: MapViewModel = viewModel(factory = viewModelFactory { initializer { MapViewModel(app.api, java.io.File(app.filesDir, "roads_map.geojson")) } })
+                val replayVm: ReplayViewModel = viewModel(factory = viewModelFactory { initializer { ReplayViewModel(app.api) } })
                 val alertsVm: AlertsViewModel = viewModel(factory = viewModelFactory { initializer { AlertsViewModel(app.api) } })
                 val smsVm: SmsViewModel = viewModel(factory = viewModelFactory { initializer { SmsViewModel(app.api, app.tokens) } })
                 var tab by rememberSaveable { mutableStateOf(Tab.Map) }
@@ -72,7 +74,7 @@ class MainActivity : ComponentActivity() {
                     // Only the bottom bar's space is consumed, so screens still pad for the status bar themselves.
                     Box(Modifier.fillMaxSize().padding(bottom).consumeWindowInsets(bottom)) {
                         // The map stays composed under the other tabs, so switching back is instant and keeps the view.
-                        MapScreen(mapVm, app.locator)
+                        MapScreen(mapVm, replayVm, app.locator)
                         if (tab != Tab.Map) {
                             // An opaque layer that takes every touch, so nothing reaches the map underneath.
                             Box(Modifier.fillMaxSize().background(FgColors.Background).pointerInput(Unit) {}) {

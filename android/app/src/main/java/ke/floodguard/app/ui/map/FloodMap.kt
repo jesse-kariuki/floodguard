@@ -28,14 +28,17 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import org.maplibre.android.style.expressions.Expression.any
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.expressions.Expression.all
+import org.maplibre.android.style.expressions.Expression.coalesce
 import org.maplibre.android.style.expressions.Expression.color
 import org.maplibre.android.style.expressions.Expression.eq
 import org.maplibre.android.style.expressions.Expression.exponential
 import org.maplibre.android.style.expressions.Expression.get
 import org.maplibre.android.style.expressions.Expression.interpolate
 import org.maplibre.android.style.expressions.Expression.literal
-import org.maplibre.android.style.expressions.Expression.match
+import org.maplibre.android.style.expressions.Expression.not
+import org.maplibre.android.style.expressions.Expression.`in` as inExpression
 import org.maplibre.android.style.expressions.Expression.stop
 import org.maplibre.android.style.expressions.Expression.zoom
 import org.maplibre.android.style.layers.CircleLayer
@@ -49,7 +52,6 @@ import org.maplibre.android.style.layers.PropertyFactory.lineCap
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineJoin
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
-import org.maplibre.android.style.layers.PropertyFactory.lineSortKey
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -58,7 +60,6 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
 import java.net.URI
 
-/** Free vector street map (OpenStreetMap data), no API key. Swap for any MapLibre style URL. */
 const val BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 
 private val NAIROBI = LatLng(-1.2921, 36.8219)
@@ -68,11 +69,11 @@ private val NAIROBI_BOUNDS = LatLngBounds.Builder()
     .build()
 
 private const val ROADS_SOURCE = "fg-roads"
-const val ROADS_LAYER = "fg-roads-line"
+private const val ROADS_LAYER_PREFIX = "fg-roads-"
 private const val PIN_SOURCE = "fg-pin"
 private const val PIN_LAYER = "fg-pin-circle"
 
-/** Imperative handle for camera moves and the location dot, which do not fit Compose state well. */
+/** Imperative handlce for camera moves and the location dot, which do not fit Compose state well. */
 class MapController {
     internal var map: MapLibreMap? = null
     internal var style: Style? = null
@@ -103,6 +104,21 @@ class MapController {
 
 private fun tierRank(code: String?) = when (code) { "H" -> 3; "M" -> 2; "L" -> 1; else -> 0 }
 
+/** Tier codes in draw order: unscored at the bottom, High on top. */
+private val TIERS = listOf("U", "L", "M", "H")
+
+/**
+ * One road layer per zone and tier, each with a fixed filter, plus a catch-all per tier for roads in a zone we do
+ * not know. Every colour change (tier mode, tier toggles, each replayed day) is then a constant paint value, which
+ * MapLibre applies in one frame. A per-road expression instead makes it re-tile all 83k roads from the 17 MB
+ * GeoJSON, which took over 30 s in central Nairobi on a phone and left the old colours showing meanwhile.
+ */
+private data class RoadLayer(val id: String, val zone: String?, val tier: String)
+
+private fun roadLayers(zoneIds: List<String>): List<RoadLayer> = TIERS.flatMap { tier ->
+    zoneIds.map { RoadLayer("$ROADS_LAYER_PREFIX$it-$tier", it, tier) } + RoadLayer("$ROADS_LAYER_PREFIX-other-$tier", null, tier)
+}
+
 /**
  * The flood map: a street basemap with every road segment drawn in its susceptibility colour.
  * Red = High, yellow = Medium, green = Low, grey = no model data. High is drawn on top.
@@ -112,13 +128,19 @@ fun FloodMap(
     controller: MapController,
     roads: RoadMap?,
     visibleTiers: Set<String>,
+    zoneIds: List<String>,
     pin: Pair<Double, Double>?,
-    onTap: (latitude: Double, longitude: Double, roadName: String?, tierCode: String?) -> Unit,
+    onTap: (latitude: Double, longitude: Double, roadName: String?, tierCode: String?, zoneId: String?) -> Unit,
     modifier: Modifier = Modifier,
+    replayLevels: Map<String, Map<String, Int>?>? = null,
+    onReplayDrawn: (Map<String, Map<String, Int>?>) -> Unit = {},
 ) {
     val context = LocalContext.current
     val tapHandler by rememberUpdatedState(onTap)
+    val drawnHandler by rememberUpdatedState(onReplayDrawn)
     var style by remember { mutableStateOf<Style?>(null) }
+    var layers by remember { mutableStateOf<List<RoadLayer>>(emptyList()) }
+    val layerIds by rememberUpdatedState(layers.map { it.id }.toTypedArray())
 
     val mapView = remember {
         MapView(context).apply {
@@ -137,10 +159,10 @@ fun FloodMap(
                 map.addOnMapClickListener { latLng ->
                     val point = map.projection.toScreenLocation(latLng)
                     val r = 14f * resources.displayMetrics.density
-                    val hits = map.queryRenderedFeatures(RectF(point.x - r, point.y - r, point.x + r, point.y + r), ROADS_LAYER)
+                    val hits = map.queryRenderedFeatures(RectF(point.x - r, point.y - r, point.x + r, point.y + r), *layerIds)
                     val best = hits.maxByOrNull { tierRank(it.getStringPropertyOrNull("t")) }
                     tapHandler(latLng.latitude, latLng.longitude, best?.getStringPropertyOrNull("n"),
-                        best?.getStringPropertyOrNull("t"))
+                        best?.getStringPropertyOrNull("t"), best?.getStringPropertyOrNull("z"))
                     true
                 }
             }
@@ -172,35 +194,65 @@ fun FloodMap(
         val s = style ?: return@LaunchedEffect
         val uri = URI(roads?.uri ?: return@LaunchedEffect)
         val existing = s.getSourceAs<GeoJsonSource>(ROADS_SOURCE)
-        if (existing != null) {
-            existing.setUri(uri)
-            return@LaunchedEffect
-        }
-        s.addSource(GeoJsonSource(ROADS_SOURCE, uri))
-        val layer = LineLayer(ROADS_LAYER, ROADS_SOURCE).withProperties(
-            lineColor(
-                match(
-                    get("t"), color(Color.parseColor(FgColors.NO_DATA_HEX)),
-                    stop("H", color(Color.parseColor(FgColors.HIGH_HEX))),
-                    stop("M", color(Color.parseColor(FgColors.MEDIUM_HEX))),
-                    stop("L", color(Color.parseColor(FgColors.LOW_HEX))),
-                )
-            ),
-            lineSortKey(match(get("t"), literal(0), stop("H", 3), stop("M", 2), stop("L", 1))),
-            lineWidth(interpolate(exponential(1.5), zoom(), stop(9, 0.6f), stop(12, 1.6f), stop(15, 4f), stop(18, 10f))),
-            lineOpacity(interpolate(exponential(1.0), zoom(), stop(9, 0.75f), stop(14, 0.9f))),
-            lineCap(Property.LINE_CAP_ROUND),
-            lineJoin(Property.LINE_JOIN_ROUND),
-        )
-        // Below the basemap's labels, so street names stay readable on top of the colours.
-        val firstLabel = s.layers.firstOrNull { it is SymbolLayer }?.id
-        if (firstLabel != null) s.addLayerBelow(layer, firstLabel) else s.addLayer(layer)
+        if (existing != null) existing.setUri(uri) else s.addSource(GeoJsonSource(ROADS_SOURCE, uri))
     }
 
-    LaunchedEffect(style, roads, visibleTiers) {
-        val layer = style?.getLayerAs<LineLayer>(ROADS_LAYER) ?: return@LaunchedEffect
-        val parts = visibleTiers.map { eq(get("t"), it) }.toTypedArray()
-        layer.setFilter(if (parts.isEmpty()) eq(get("t"), "none") else any(*parts))
+    // (Re)build the layers when the zone list arrives. This is the one step that makes MapLibre lay roads out.
+    LaunchedEffect(style, roads, zoneIds) {
+        val s = style ?: return@LaunchedEffect
+        if (roads == null || s.getSource(ROADS_SOURCE) == null) return@LaunchedEffect
+        val wanted = roadLayers(zoneIds)
+        if (wanted.map { it.id } == layers.map { it.id }) return@LaunchedEffect
+        layers.forEach { s.removeLayer(it.id) }
+        val known = zoneIds.toTypedArray()
+        // Below the basemap's labels, so street names stay readable on top of the colours.
+        val firstLabel = s.layers.firstOrNull { it is SymbolLayer }?.id
+        wanted.forEach { rl ->
+            val inTier = eq(get("t"), rl.tier)
+            val filter = if (rl.zone != null) all(inTier, eq(get("z"), rl.zone))
+            else all(inTier, not(inExpression(coalesce(get("z"), literal("")), literal(known))))
+            val layer = LineLayer(rl.id, ROADS_SOURCE).withFilter(filter).withProperties(
+                lineColor(Color.parseColor(tierHex(rl.tier))),
+                lineWidth(interpolate(exponential(1.5), zoom(), stop(9, 0.6f), stop(12, 1.6f), stop(15, 4f), stop(18, 10f))),
+                lineOpacity(VISIBLE_OPACITY),
+                lineCap(Property.LINE_CAP_ROUND),
+                lineJoin(Property.LINE_JOIN_ROUND),
+            )
+            if (firstLabel != null) s.addLayerBelow(layer, firstLabel) else s.addLayer(layer)
+        }
+        layers = wanted
+    }
+
+    LaunchedEffect(style, layers, visibleTiers, replayLevels) {
+        val s = style ?: return@LaunchedEffect
+        if (layers.isEmpty()) return@LaunchedEffect
+        layers.forEach { rl ->
+            val layer = s.getLayerAs<LineLayer>(rl.id) ?: return@forEach
+            if (replayLevels != null) {
+                // Replay: every road, coloured by the alert level its zone and tier would have had that day.
+                val level = rl.zone?.let { replayLevels[it]?.get(rl.tier) }
+                val hex = level?.let { FgColors.LEVEL_HEX.getOrNull(it) } ?: FgColors.UNKNOWN_HEX
+                layer.setProperties(lineColor(Color.parseColor(hex)), lineOpacity(VISIBLE_OPACITY))
+            } else {
+                layer.setProperties(
+                    lineColor(Color.parseColor(tierHex(rl.tier))),
+                    if (rl.tier in visibleTiers) lineOpacity(VISIBLE_OPACITY) else lineOpacity(0f),
+                )
+            }
+        }
+        if (replayLevels == null) return@LaunchedEffect
+        // Tell the screen once the map has drawn the new colours.
+        val applied = replayLevels
+        mapView.addOnDidBecomeIdleListener(object : MapView.OnDidBecomeIdleListener {
+            var done = false
+            override fun onDidBecomeIdle() {
+                if (done) return
+                done = true
+                mapView.post { mapView.removeOnDidBecomeIdleListener(this) }
+                drawnHandler(applied)
+            }
+        })
+        controller.map?.triggerRepaint()
     }
 
     LaunchedEffect(style, pin) {
@@ -221,6 +273,15 @@ fun FloodMap(
     }
 
     AndroidView(factory = { mapView }, modifier = modifier)
+}
+
+private val VISIBLE_OPACITY: Expression = interpolate(exponential(1.0), zoom(), stop(9, 0.75f), stop(14, 0.9f))
+
+private fun tierHex(tier: String) = when (tier) {
+    "H" -> FgColors.HIGH_HEX
+    "M" -> FgColors.MEDIUM_HEX
+    "L" -> FgColors.LOW_HEX
+    else -> FgColors.NO_DATA_HEX
 }
 
 private fun Feature.getStringPropertyOrNull(key: String): String? =

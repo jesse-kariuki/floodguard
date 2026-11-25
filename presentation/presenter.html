@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FloodGuard Presenter</title>
+<style>
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --ink: #14202e; --muted: #5c6b7c; --line: #dde3ea;
+  --accent: #0b5fa5; --accent-soft: #e3eef8; --now: #fff4d6; --now-edge: #e0a100; --done: #9aa7b5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151c; --panel: #17202a; --ink: #e7edf3; --muted: #93a3b4; --line: #2a3644;
+    --accent: #6fb3ee; --accent-soft: #1b2c3d; --now: #2e2712; --now-edge: #e0a100; --done: #5b6878;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151c; --panel: #17202a; --ink: #e7edf3; --muted: #93a3b4; --line: #2a3644;
+  --accent: #6fb3ee; --accent-soft: #1b2c3d; --now: #2e2712; --now-edge: #e0a100; --done: #5b6878;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header {
+  position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center;
+  padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.clock { font: 600 32px/1 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+.clock small { font-size: 14px; color: var(--muted); font-weight: 500; }
+.part { font-weight: 600; color: var(--accent); }
+.remain { color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar { flex-basis: 100%; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; display: flex; }
+.bar span { height: 100%; border-right: 2px solid var(--panel); }
+.bar span.fill { background: var(--accent); }
+.controls { margin-left: auto; display: flex; gap: 8px; }
+button {
+  font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); cursor: pointer;
+}
+button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); font-weight: 600; }
+main { display: grid; grid-template-columns: minmax(220px, 340px) 1fr; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+.video { position: sticky; top: 112px; align-self: start; }
+video { width: 100%; border-radius: 16px; background: #000; display: block; aspect-ratio: 720 / 1600; }
+.vt { margin-top: 8px; color: var(--muted); font-size: 14px; text-align: center; font-variant-numeric: tabular-nums; }
+.keys { margin-top: 8px; color: var(--muted); font-size: 13px; text-align: center; }
+kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 12px; background: var(--panel); }
+.script { display: flex; flex-direction: column; gap: 10px; padding-bottom: 50vh; }
+h2 { margin: 18px 0 2px; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.block {
+  background: var(--panel); border: 1px solid var(--line); border-left: 5px solid var(--line);
+  border-radius: 10px; padding: 12px 16px; cursor: pointer; transition: background .2s, border-color .2s, opacity .2s;
+}
+.block .meta { display: flex; gap: 10px; align-items: baseline; font-size: 13px; color: var(--muted); }
+.block .t { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.block .title { font-weight: 600; color: var(--ink); }
+.block .cue { font-size: 13px; color: var(--accent); margin-top: 4px; }
+.block .say { font-size: 22px; line-height: 1.5; margin: 6px 0 0; }
+.block .say em { font-style: normal; background: var(--accent-soft); border-radius: 4px; padding: 0 3px; }
+.block.done { opacity: .5; }
+.block.now { background: var(--now); border-left-color: var(--now-edge); opacity: 1; }
+.placeholder { background: #ffe08a; color: #3a2c00; border-radius: 4px; padding: 0 4px; }
+@media (max-width: 760px) {
+  main { grid-template-columns: 1fr; }
+  .video { position: static; max-width: 260px; margin: 0 auto; }
+  .block .say { font-size: 19px; }
+  .clock { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="clock" id="clock">0:00 <small>/ 5:00</small></div>
+  <div><div class="part" id="part">Press Space to start</div><div class="remain" id="remain"></div></div>
+  <div class="controls">
+    <button id="prev" title="Previous block (←)">◀</button>
+    <button id="play" class="primary">Start</button>
+    <button id="next" title="Next block (→)">▶</button>
+    <button id="reset" title="Reset (R)">Reset</button>
+  </div>
+  <div class="bar" id="bar"></div>
+</header>
+<main>
+  <div class="video">
+    <video id="v" src="FloodGuard_demo.mp4" muted playsinline preload="auto"></video>
+    <div class="vt" id="vt">Demo video 0:00 / 2:00 · plays automatically at 2:30</div>
+    <div class="keys"><kbd>Space</kbd> start/pause · <kbd>←</kbd><kbd>→</kbd> jump · <kbd>F</kbd> video fullscreen · <kbd>R</kbd> reset</div>
+  </div>
+  <div class="script" id="script"></div>
+</main>
+<script>
+// Master timeline in seconds. Demo blocks start at 150 + the video timestamp.
+const DEMO = 150, DEMO_LEN = 120, TOTAL = 300;
+const PARTS = [
+  { name: "1. Introduction", start: 0, end: 30 },
+  { name: "2. Features", start: 30, end: 90 },
+  { name: "3. Code explanation", start: 90, end: 150 },
+  { name: "4. Demonstration", start: 150, end: 270 },
+  { name: "5. Conclusion", start: 270, end: 300 },
+];
+const B = [
+  { s: 0, part: 0, title: "Who and what", cue: "Video paused on the title card",
+    say: 'Good morning. My name is <span class="placeholder">[YOUR NAME]</span>, registration number <span class="placeholder">[REG NUMBER]</span>. My project is <em>FloodGuard</em>, a native Android app written in Kotlin that shows the flood risk of every road in Nairobi.' },
+  { s: 12, part: 0, title: "Purpose",
+    say: "Nairobi floods almost every rainy season, and people usually find out a road is flooded only when they are already on it. FloodGuard combines a machine-learning flood map with live rainfall forecasts, so people can check a road before they travel and get an SMS when heavy rain is coming." },
+  { s: 30, part: 1, title: "Flood map",
+    say: "The app has five main features. <em>One: the flood map.</em> All 83,596 road segments in Nairobi are coloured by flood susceptibility, where red is high, yellow medium and green low. The colours come from a Random Forest model. I can filter by level, search for any road, or jump to my location." },
+  { s: 48, part: 1, title: "Live risk",
+    say: "<em>Two: live risk for any spot.</em> Tapping a road shows today's rain alert there, the rainfall forecast for the next 6 and 24 hours, and the roads nearby. The forecasts refresh every hour from Open-Meteo." },
+  { s: 60, part: 1, title: "Replay",
+    say: "<em>Three: replay.</em> I can pick any day since February 2024 and the map recolours to the alerts FloodGuard would have shown, using the forecasts as they were issued then. It caught 6 of 7 documented floods." },
+  { s: 72, part: 1, title: "Alerts and SMS",
+    say: "<em>Four: an alerts feed</em> with roads under alert now and official Kenya Met warnings. <em>Five: SMS alerts.</em> Anyone can sign up with a phone number, a place, and English or Kiswahili. It also works on phones without the app." },
+  { s: 90, part: 2, title: "MainActivity.kt · lines 48–91", cue: "Android Studio: MainActivity.kt",
+    say: "The whole UI is built with <em>Jetpack Compose</em>. In onCreate I call setContent, and I create one ViewModel per screen with a factory that passes in the shared API client. A Scaffold holds the bottom navigation bar, and the current tab is stored with rememberSaveable, so it survives rotation. The map stays composed under the other tabs, so switching back is instant." },
+  { s: 105, part: 2, title: "MapViewModel.kt · lines 21–24, 80–94", cue: "Open ui/map/MapViewModel.kt",
+    say: "Every screen's state is a <em>sealed interface</em>, Load, which is either Loading, Ready or Failed. loadRoads first shows the copy saved on the phone, then launches a coroutine in viewModelScope to fetch a newer one. The ViewModel exposes these as <em>StateFlows</em>, so the Compose UI redraws by itself whenever they change." },
+  { s: 120, part: 2, title: "ApiClient.kt · lines 58–81", cue: "Open data/ApiClient.kt",
+    say: "Networking uses OkHttp inside <em>suspend functions</em> on Dispatchers.IO, so it never blocks the main thread. The road map is 17 MB, so I stream it straight to disk and send the saved ETag. If the server answers 304 Not Modified, nothing is downloaded, and the app keeps working offline." },
+  { s: 135, part: 2, title: "FloodMap.kt · lines 118–121, 201–224, 275", cue: "Open ui/map/FloodMap.kt",
+    say: "MapLibre is a classic Android View, so I wrap it in Compose with <em>AndroidView</em>. Instead of one layer with a colour expression per road, I build one layer per zone and risk tier with a fixed filter. Recolouring for replay then changes only paint properties. That took a redraw from over 30 seconds to a single frame." },
+  { s: DEMO + 0, part: 3, title: "The flood map", cue: "▶ 0:00 title card · 0:04 app open on the map",
+    say: "This is FloodGuard running on an Android emulator. It opens on the flood map, with every road in Nairobi coloured by susceptibility: red high, yellow medium, green low." },
+  { s: DEMO + 13, part: 3, title: "Filters", cue: "▶ 0:13 Low, Medium and No-data switched off · 0:20 back on",
+    say: "Using the filter chips, I hide Low, Medium and No data, so only the high-risk roads remain. Tapping them again brings everything back." },
+  { s: DEMO + 24, part: 3, title: "Search and live risk", cue: "▶ 0:24 typing “Jogoo” · 0:27 sheet opens · 0:39 scrolled · 0:43 closed",
+    say: "Next, I search for a road: Jogoo Road. The map flies there and a sheet opens with the live rain alert. Today it says <em>No alert</em>, and shows the rain forecast for the next 6 and 24 hours. Scrolling down shows the area's susceptibility and the roads nearby." },
+  { s: DEMO + 49, part: 3, title: "Replay a past day", cue: "▶ 0:49 21 Apr 2025 · 0:58 whole city · 1:06 next day · 1:10 closed",
+    say: "Now, replay mode. It opens on the 21st of April 2025, when floods killed people in Mathare and Mukuru. The card confirms an alert was already showing the day before. With the panel collapsed, the whole city is under a Watch. I step to the next day, then leave replay." },
+  { s: DEMO + 72, part: 3, title: "Alerts tab", cue: "▶ 1:12 Alerts tab",
+    say: "The Alerts tab lists roads under an alert right now and official Kenya Met warnings. There are none today." },
+  { s: DEMO + 79, part: 3, title: "SMS sign-up", cue: "▶ 1:24 form filled · 1:33 Send me a code · 1:37 code entered · 1:42 subscribed",
+    say: "Finally, SMS alerts. I enter a phone number, pick the road to watch, Kirinyaga Road, choose Kiswahili and give consent. I tap <em>Send me a code</em>, enter the six-digit code and confirm. I'm now subscribed, and that road is rated High." },
+  { s: DEMO + 106, part: 3, title: "Back to the map", cue: "▶ 1:46 Flood map tab · holds to 2:00",
+    say: "And back to the map. It stayed loaded in the background, so switching is instant. That completes the demo." },
+  { s: 270, part: 4, title: "What I achieved", cue: "Video ended on the map",
+    say: "To conclude: I built a complete Android app in Kotlin and Jetpack Compose, connected to a Python FastAPI backend. It has a live flood map of 83,000 road segments, a replay mode, an alerts feed and SMS sign-up." },
+  { s: 283, part: 4, title: "Challenges and next steps",
+    say: "The two main challenges were performance, getting 17 megabytes of road data to draw smoothly on a phone, and honesty about uncertainty: the model has a small validation sample, so the app never shows missing data as safe. Next, I'd deploy the backend over HTTPS and test with real users. Thank you." },
+];
+B.forEach((b, i) => b.e = i + 1 < B.length ? B[i + 1].s : TOTAL);
+
+const $ = id => document.getElementById(id);
+const v = $("v"), script = $("script");
+const fmt = s => { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+
+// Build the script and the progress bar.
+let lastPart = -1;
+B.forEach((b, i) => {
+  if (b.part !== lastPart) {
+    const p = PARTS[b.part];
+    const h = document.createElement("h2");
+    h.textContent = `${p.name} · ${fmt(p.start)}–${fmt(p.end)}` + (b.part === 3 ? " · video timer shown" : "");
+    script.appendChild(h); lastPart = b.part;
+  }
+  const el = document.createElement("div");
+  el.className = "block"; el.id = "b" + i;
+  const t = b.part === 3 ? `video ${fmt(b.s - DEMO)}` : fmt(b.s);
+  el.innerHTML = `<div class="meta"><span class="t">${t}</span><span class="title">${b.title}</span></div>` +
+    (b.cue ? `<div class="cue">${b.cue}</div>` : "") + `<p class="say">${b.say}</p>`;
+  el.onclick = () => seek(b.s);
+  script.appendChild(el);
+});
+PARTS.forEach(p => {
+  const s = document.createElement("span");
+  s.style.flex = String(p.end - p.start);
+  $("bar").appendChild(s);
+});
+
+let T = 0, running = false, last = performance.now(), cur = -1;
+const inDemo = t => t >= DEMO && t < DEMO + DEMO_LEN;
+
+function seek(t) {
+  T = Math.max(0, Math.min(TOTAL, t));
+  if (inDemo(T)) { v.currentTime = T - DEMO; if (running) v.play().catch(() => {}); }
+  else { v.pause(); v.currentTime = T >= DEMO + DEMO_LEN ? DEMO_LEN : 0; }
+  render(true);
+}
+function setRunning(r) {
+  running = r; last = performance.now();
+  $("play").textContent = r ? "Pause" : (T > 0 ? "Resume" : "Start");
+  if (r && inDemo(T)) v.play().catch(() => {}); else v.pause();
+}
+function tick(now) {
+  const dt = (now - last) / 1000; last = now;
+  if (running) {
+    if (inDemo(T) && (v.error || v.readyState < 2)) {
+      T = Math.min(DEMO + DEMO_LEN, T + dt);                  // video missing or unplayable: keep time anyway
+    } else if (inDemo(T)) {
+      if (v.paused && !v.ended) v.play().catch(() => {});
+      T = v.ended ? DEMO + DEMO_LEN : DEMO + v.currentTime;   // the video drives the clock
+    } else {
+      const before = T;
+      T = Math.min(TOTAL, T + dt);
+      if (before < DEMO && T >= DEMO) { v.currentTime = 0; v.play().catch(() => {}); T = DEMO; }
+      if (T >= TOTAL) setRunning(false);
+    }
+  }
+  render(false);
+  requestAnimationFrame(tick);
+}
+function render(force) {
+  $("clock").innerHTML = `${fmt(T)} <small>/ 5:00</small>`;
+  const pi = PARTS.findIndex(p => T >= p.start && T < p.end);
+  const p = PARTS[pi < 0 ? PARTS.length - 1 : pi];
+  $("part").textContent = running || T > 0 ? p.name : "Press Space to start";
+  $("remain").textContent = `${fmt(p.end - T)} left in this part`;
+  [...$("bar").children].forEach((s, i) => {
+    const q = PARTS[i];
+    s.style.background = T >= q.end ? "var(--accent)" : T > q.start ? `linear-gradient(90deg, var(--accent) ${(T - q.start) / (q.end - q.start) * 100}%, transparent 0)` : "";
+  });
+  $("vt").textContent = inDemo(T) || T >= DEMO + DEMO_LEN
+    ? `Demo video ${fmt(Math.min(DEMO_LEN, v.currentTime))} / 2:00`
+    : `Demo video starts automatically in ${fmt(DEMO - T)}`;
+  const i = B.findIndex(b => T >= b.s && T < b.e);
+  if (i !== cur || force) {
+    cur = i;
+    B.forEach((_, j) => {
+      const el = $("b" + j);
+      el.classList.toggle("now", j === i);
+      el.classList.toggle("done", i >= 0 && j < i);
+    });
+    if (i >= 0) $("b" + i).scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+v.addEventListener("ended", () => { if (running) T = DEMO + DEMO_LEN; });
+$("play").onclick = () => setRunning(!running);
+$("reset").onclick = () => { setRunning(false); seek(0); $("play").textContent = "Start"; };
+$("prev").onclick = () => { const i = B.findIndex(b => T >= b.s && T < b.e); seek(B[Math.max(0, (i < 0 ? B.length : i) - (T - (B[i]?.s ?? 0) > 2 ? 0 : 1))].s); };
+$("next").onclick = () => { const i = B.findIndex(b => T >= b.s && T < b.e); if (i + 1 < B.length) seek(B[i + 1].s); };
+document.addEventListener("keydown", e => {
+  if (e.code === "Space") { e.preventDefault(); setRunning(!running); }
+  else if (e.key === "ArrowRight") $("next").click();
+  else if (e.key === "ArrowLeft") $("prev").click();
+  else if (e.key === "r" || e.key === "R") $("reset").click();
+  else if (e.key === "f" || e.key === "F") (v.requestFullscreen || v.webkitRequestFullscreen || (() => {})).call(v);
+});
+// presenter.html#t=150 opens at that point of the talk (handy for rehearsing one part).
+const start = parseFloat((location.hash.match(/t=([\d.]+)/) || [])[1]);
+if (start >= 0) v.addEventListener("loadedmetadata", () => seek(start), { once: true });
+render(true);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

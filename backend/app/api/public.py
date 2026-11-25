@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import replay as replay_mod
 from app.alerts import active_official_alerts
 from app.config import get_settings
 from app.db import get_db
@@ -138,3 +140,71 @@ def road_map(accept_encoding: str = Header(default=""), if_none_match: str = Hea
     if "gzip" in accept_encoding.lower():
         return Response(data, media_type="application/geo+json", headers={**headers, "Content-Encoding": "gzip"})
     return Response(gzip.decompress(data), media_type="application/geo+json", headers=headers)
+
+
+ReplaySource = Literal["day_ahead", "latest_run"]
+
+
+def _replay_store() -> replay_mod.ReplayStore:
+    try:
+        return replay_mod.get_replay()
+    except replay_mod.ReplayUnavailable as err:
+        raise HTTPException(503, str(err)) from err
+
+
+@router.get("/replay/timeline", summary="Replay: city-wide alert band for every archived day, and the flood catalogue")
+def replay_timeline(source: ReplaySource = "day_ahead") -> dict:
+    """`bands[i]` is the worst zone's rain band on `start + i` days (null = no forecast). Band 1 or more is an
+    alert day. Episodes are runs of consecutive alert days; `event_id` is set when one matches a documented flood."""
+    store = _replay_store()
+    bands = store.city_band[source]
+    episodes: list[dict] = []
+    for i, band in enumerate(bands):
+        if (band or 0) < 1:
+            continue
+        day = store.dates[i]
+        if episodes and (day - episodes[-1]["end"]).days <= 1:
+            episodes[-1]["end"] = day
+            episodes[-1]["peak_band"] = max(episodes[-1]["peak_band"], band)
+        else:
+            episodes.append({"start": day, "end": day, "peak_band": band})
+    slack = timedelta(days=replay_mod.EPISODE_SLACK_DAYS)
+    for ep in episodes:
+        match = next((e for e in store.events if ep["start"] - slack <= e.end and ep["end"] + slack >= e.start), None)
+        ep["event_id"] = match.event_id if match else None
+    events = store.event_summaries(source)
+    return {"source": source, "source_note": replay_mod.SOURCE_NOTES[source], "start": store.start, "end": store.end,
+            "bands": bands, "events": events, "episodes": episodes,
+            "summary": {"days": len(bands), "alert_days": sum((b or 0) >= 1 for b in bands),
+                        "alert_episodes": len(episodes),
+                        "episodes_matching_an_event": sum(ep["event_id"] is not None for ep in episodes),
+                        "events_detected": sum(e["detected"] for e in events), "events_total": len(events)},
+            "caveats": replay_mod.CAVEATS}
+
+
+@router.get("/replay", summary="Replay: what FloodGuard would have shown on a past date")
+def replay(day: date = Query(alias="date", description="Local date, YYYY-MM-DD"),
+           source: ReplaySource = "day_ahead") -> dict:
+    """Zones use the same shape as /zones, at each zone's worst hour that day. `levels[zone][tier]` is the alert
+    level for a road of that tier (H, M, L, or U if unscored), so a client can colour every segment. Read-only:
+    replay never touches subscribers or sends SMS."""
+    store = _replay_store()
+    try:
+        rows = store.zone_rows(source, day)
+    except ValueError as err:
+        raise HTTPException(422, str(err)) from err
+    available = [r for r in rows if r["available"]]
+    alert = store.alert_on(source, day)
+    event = store.event_context(source, day)
+    code, text = replay_mod.verdict(alert, event)
+    wettest = max(available, key=lambda r: r["rain_area_24h_mm"], default=None)
+    return {"date": day, "source": source, "source_note": replay_mod.SOURCE_NOTES[source],
+            "city_band": max((r["rain_band"] for r in available), default=None),
+            "zones_alerting": sum(r["rain_band"] >= 1 for r in available), "zones_total": len(rows),
+            "wettest_zone": None if wettest is None else
+            {"zone_id": wettest["zone_id"], "rain_area_24h_mm": wettest["rain_area_24h_mm"]},
+            "verdict": code, "verdict_text": text, "event": event,
+            "previous_day_alert": store.alert_on(source, day - timedelta(days=1)),
+            "zones": rows, "levels": replay_mod.levels_by_zone(rows),
+            "segments_by_level": replay_mod.segments_by_level(rows),
+            "caveats": replay_mod.CAVEATS, "disclaimer": DISCLAIMER}

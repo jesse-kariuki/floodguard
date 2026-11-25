@@ -21,13 +21,11 @@ import java.util.concurrent.TimeUnit
 
 class ApiException(message: String, val status: Int) : Exception(message)
 
-/** Typed client for the FloodGuard backend. Every call is main-safe. */
 class ApiClient(baseUrl: String, cacheDir: File) {
     private val base: HttpUrl = baseUrl.toHttpUrl()
 
     val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
-    // The HTTP cache lets the 2 MB road map revalidate with its ETag instead of downloading again.
     private val http = OkHttpClient.Builder()
         .cache(Cache(File(cacheDir, "http"), 30L * 1024 * 1024))
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -42,6 +40,9 @@ class ApiClient(baseUrl: String, cacheDir: File) {
     suspend fun roadsAtRisk(minLevel: Int = 1): RoadsAtRiskResponse =
         get("api/v1/roads/at-risk", "min_level" to minLevel.toString(), "limit" to "100")
     suspend fun officialAlerts(): OfficialAlertsResponse = get("api/v1/alerts/official")
+    suspend fun replayTimeline(source: String): ReplayTimeline = get("api/v1/replay/timeline", "source" to source)
+    suspend fun replay(date: String, source: String): ReplayDay =
+        get("api/v1/replay", "date" to date, "source" to source)
 
     suspend fun subscribe(body: SubscribeRequest): SubscribeResponse = send("POST", "api/v1/subscribers", body)
     suspend fun verify(phone: String, code: String): VerifyResponse =
@@ -54,10 +55,6 @@ class ApiClient(baseUrl: String, cacheDir: File) {
         call(request("api/v1/subscribers/me", token = token).delete().build())
     }
 
-    /**
-     * Downloads the road network GeoJSON (17 MB unzipped) straight to [dest], streaming so it never sits in the
-     * Java heap. Sends the saved ETag, so an unchanged map costs one small 304. Returns [dest].
-     */
     suspend fun downloadRoadMap(dest: File): File = withContext(Dispatchers.IO) {
         val etagFile = File(dest.path + ".etag")
         val builder = request("api/v1/map/roads").header("Accept", "application/geo+json")

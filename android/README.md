@@ -35,6 +35,7 @@ Tests: `.\gradlew testDebugUnitTest`.
 | Tab | Shows | Backend |
 |---|---|---|
 | Flood map | Street map with every road coloured by susceptibility, tier filters, road search, my location, and a sheet with the live alert, rain forecast and nearby roads for the tapped spot | `/map/roads`, `/zones`, `/risk`, `/roads/search` |
+| Replay (history button on the map) | Pick a past date, or tap a documented flood or the timeline, and the map recolours to that day's alert levels from real archived forecasts. A card says whether a flood was documented and whether the alert fired the day before | `/replay`, `/replay/timeline` |
 | Alerts | Roads under a rain alert now, Kenya Met warnings (or a notice when the feed is down), GDACS events | `/roads/at-risk`, `/alerts/official`, `/status` |
 | SMS alerts | Sign up with a code, change language or level, alert history, delete | `/subscribers/*` |
 
@@ -46,6 +47,9 @@ Tests: `.\gradlew testDebugUnitTest`.
 - The road colours come from `GET /api/v1/map/roads`: 83,596 segments, 2.3 MB gzipped. The app streams the file to
   disk and MapLibre reads it natively. After that, it revalidates with an ETag, so a later launch downloads nothing
   unless the model was retrained, and the map still works offline from the saved copy.
+- In replay mode, each road is coloured by the alert level its zone's rain and its own tier would have given that
+  day (the `z` and `t` properties in the map file), with a separate legend so it is never confused with
+  susceptibility. Roads in a zone with no forecast that day are dark grey, not "none".
 - Susceptibility is static: it shows where water tends to collect, not whether it is raining. The legend says so, and
   the live alert for a spot is shown separately when you tap it. The banner under the search bar summarises today's
   forecast.
@@ -64,6 +68,7 @@ app/src/main/java/ke/floodguard/app/
   MainActivity.kt       bottom navigation; the map stays loaded under the other tabs
   data/                 API client and models, Keystore-encrypted token, one-shot location
   ui/map/               FloodMap (MapLibre view and layers), MapScreen (search, chips, legend, sheet), MapViewModel
+  ui/replay/            Replay mode: date and source controls, flood timeline, verdict card, tapped-road sheet
   ui/alerts/            Alerts tab
   ui/sms/               SMS sign-up and account
   ui/common/, ui/theme/ shared components, colours and alert wording

@@ -4,7 +4,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
-// Shapes mirror backend/app/api/*.py. Unknown fields are ignored, so the backend can add fields safely.
 
 @Serializable
 data class DataStatus(
@@ -169,3 +168,73 @@ data class StatusResponse(val data: DataStatus, @SerialName("last_cycle") val la
 
 /** A place the user picked: from GPS, a road search, or a tap on the map. */
 data class Place(val latitude: Double, val longitude: Double, val label: String?)
+
+// Replay mode: archived forecasts replayed through the live rules (backend/app/replay.py).
+
+@Serializable
+data class ReplayEvent(
+    @SerialName("event_id") val eventId: String,
+    @SerialName("date_start") val dateStart: String,
+    @SerialName("date_end") val dateEnd: String,
+    val description: String,
+    @SerialName("source_url") val sourceUrl: String? = null,
+    @SerialName("date_evidence") val dateEvidence: String? = null,
+    val relation: String? = null,                    // day_before | during | after (only on /replay)
+    val detected: Boolean = false,
+    @SerialName("first_alert_date") val firstAlertDate: String? = null,
+    @SerialName("alerted_day_before") val alertedDayBefore: Boolean = false,
+)
+
+@Serializable
+data class ReplayEpisode(
+    val start: String,
+    val end: String,
+    @SerialName("peak_band") val peakBand: Int,
+    @SerialName("event_id") val eventId: String? = null,
+)
+
+@Serializable
+data class ReplaySummary(
+    val days: Int,
+    @SerialName("alert_days") val alertDays: Int,
+    @SerialName("alert_episodes") val alertEpisodes: Int,
+    @SerialName("episodes_matching_an_event") val episodesMatching: Int,
+    @SerialName("events_detected") val eventsDetected: Int,
+    @SerialName("events_total") val eventsTotal: Int,
+)
+
+@Serializable
+data class ReplayTimeline(
+    val source: String,
+    @SerialName("source_note") val sourceNote: String,
+    val start: String,
+    val end: String,
+    val bands: List<Int?>,
+    val events: List<ReplayEvent>,
+    val episodes: List<ReplayEpisode>,
+    val summary: ReplaySummary,
+    val caveats: String,
+)
+
+@Serializable
+data class WettestZone(@SerialName("zone_id") val zoneId: String, @SerialName("rain_area_24h_mm") val rainArea24h: Double)
+
+@Serializable
+data class ReplayDay(
+    val date: String,
+    val source: String,
+    @SerialName("source_note") val sourceNote: String,
+    @SerialName("city_band") val cityBand: Int? = null,
+    @SerialName("zones_alerting") val zonesAlerting: Int,
+    @SerialName("zones_total") val zonesTotal: Int,
+    @SerialName("wettest_zone") val wettestZone: WettestZone? = null,
+    val verdict: String,                              // hit | hit_other_day | miss | no_documented_flood | quiet
+    @SerialName("verdict_text") val verdictText: String,
+    val event: ReplayEvent? = null,
+    @SerialName("previous_day_alert") val previousDayAlert: Boolean = false,
+    val zones: List<ZoneWeather>,
+    val levels: Map<String, Map<String, Int>?>,       // zone -> tier code (H, M, L, U) -> alert level; null = no data
+    @SerialName("segments_by_level") val segmentsByLevel: Map<String, Int>,
+    val caveats: String,
+    val disclaimer: String,
+)

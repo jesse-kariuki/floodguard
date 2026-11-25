@@ -22,7 +22,15 @@ object FgColors {
     val Medium = Color(0xFFF2B705)
     val Low = Color(0xFF2E9E48)
     val NoData = Color(0xFF9AA4AE)
+
+    // Replay alert levels on the map. Deliberately not the susceptibility palette: a different legend shows.
+    // "None" is pale so wet roads stand out; "unknown" is dark grey, never a reassuring colour.
+    val LEVEL_HEX = listOf("#C9D3DB", "#F2C200", "#F07800", "#B3261E")    // none, watch, warning, severe
+    const val UNKNOWN_HEX = "#5F6B76"
 }
+
+fun levelColor(level: Int?): Color =
+    Color(android.graphics.Color.parseColor(level?.let { FgColors.LEVEL_HEX.getOrNull(it) } ?: FgColors.UNKNOWN_HEX))
 
 fun tierColor(tier: String?): Color = when (tier) {
     "High", "H" -> FgColors.High

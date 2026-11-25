@@ -18,20 +18,17 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
-/** One location fix from the platform LocationManager, so the app needs no Google Play services. */
 class Locator(private val context: Context) {
 
     fun hasPermission(): Boolean = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         .any { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
-    /** A fresh fix, or the last known one, or null after [timeoutMs]. Call only with permission granted. */
     @SuppressLint("MissingPermission")
     suspend fun current(timeoutMs: Long = 15_000): Location? {
         if (!hasPermission()) return null
         val manager = context.getSystemService(LocationManager::class.java) ?: return null
         val lastKnown = manager.getProviders(true).mapNotNull { manager.getLastKnownLocation(it) }.maxByOrNull { it.time }
         if (lastKnown != null && System.currentTimeMillis() - lastKnown.time < 2 * 60_000) return lastKnown
-        // Ask every enabled provider at once and keep the first answer: on some devices one provider never replies.
         val providers = manager.getProviders(true).filter { it != LocationManager.PASSIVE_PROVIDER }
         val fresh = withTimeoutOrNull(timeoutMs) {
             coroutineScope {
