@@ -60,7 +60,8 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
 import java.net.URI
 
-const val BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
+/** A light grey basemap, so the road colours are the only colour on the map. */
+const val BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/positron"
 
 private val NAIROBI = LatLng(-1.2921, 36.8219)
 private val NAIROBI_BOUNDS = LatLngBounds.Builder()
@@ -120,8 +121,9 @@ private fun roadLayers(zoneIds: List<String>): List<RoadLayer> = TIERS.flatMap {
 }
 
 /**
- * The flood map: a street basemap with every road segment drawn in its susceptibility colour.
- * Red = High, yellow = Medium, green = Low, grey = no model data. High is drawn on top.
+ * The flood map: a light basemap with road segments drawn in their susceptibility colour.
+ * Dark blue = High, mid blue = Medium, pale blue = Low, grey = no model data. High is drawn on top.
+ * Medium fades in as you zoom, so the city-wide view shows only the real hotspots.
  */
 @Composable
 fun FloodMap(
@@ -214,7 +216,7 @@ fun FloodMap(
             val layer = LineLayer(rl.id, ROADS_SOURCE).withFilter(filter).withProperties(
                 lineColor(Color.parseColor(tierHex(rl.tier))),
                 lineWidth(interpolate(exponential(1.5), zoom(), stop(9, 0.6f), stop(12, 1.6f), stop(15, 4f), stop(18, 10f))),
-                lineOpacity(VISIBLE_OPACITY),
+                lineOpacity(tierOpacity(rl.tier)),
                 lineCap(Property.LINE_CAP_ROUND),
                 lineJoin(Property.LINE_JOIN_ROUND),
             )
@@ -236,7 +238,7 @@ fun FloodMap(
             } else {
                 layer.setProperties(
                     lineColor(Color.parseColor(tierHex(rl.tier))),
-                    if (rl.tier in visibleTiers) lineOpacity(VISIBLE_OPACITY) else lineOpacity(0f),
+                    if (rl.tier in visibleTiers) lineOpacity(tierOpacity(rl.tier)) else lineOpacity(0f),
                 )
             }
         }
@@ -266,7 +268,8 @@ fun FloodMap(
             s.addSource(GeoJsonSource(PIN_SOURCE, collection))
             s.addLayer(
                 CircleLayer(PIN_LAYER, PIN_SOURCE).withProperties(
-                    circleRadius(9f), circleColor("#0B5FA5"), circleStrokeColor("#FFFFFF"), circleStrokeWidth(3f),
+                    // Charcoal, not blue: a blue pin would vanish on the blue susceptibility roads.
+                    circleRadius(9f), circleColor("#14202B"), circleStrokeColor("#FFFFFF"), circleStrokeWidth(3f),
                 )
             )
         }
@@ -276,6 +279,11 @@ fun FloodMap(
 }
 
 private val VISIBLE_OPACITY: Expression = interpolate(exponential(1.0), zoom(), stop(9, 0.75f), stop(14, 0.9f))
+
+/** Medium is faint at city zoom and full strength from street zoom, so the overview is not a wall of colour. */
+private val MEDIUM_OPACITY: Expression = interpolate(exponential(1.0), zoom(), stop(11, 0.2f), stop(13.5, 0.85f))
+
+private fun tierOpacity(tier: String): Expression = if (tier == "M") MEDIUM_OPACITY else VISIBLE_OPACITY
 
 private fun tierHex(tier: String) = when (tier) {
     "H" -> FgColors.HIGH_HEX

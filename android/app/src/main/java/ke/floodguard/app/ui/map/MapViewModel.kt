@@ -58,8 +58,8 @@ class MapViewModel(private val api: ApiClient, private val roadMapFile: File) : 
     private val _selection = MutableStateFlow<Selection?>(null)
     val selection: StateFlow<Selection?> = _selection
 
-    /** Tiers drawn on the map. All on by default. */
-    private val _tiers = MutableStateFlow(setOf("H", "M", "L", "U"))
+    /** Tiers drawn on the map. High and Medium by default: Low and unscored roads are left to the basemap. */
+    private val _tiers = MutableStateFlow(setOf("H", "M"))
     val tiers: StateFlow<Set<String>> = _tiers
 
     val query = MutableStateFlow("")

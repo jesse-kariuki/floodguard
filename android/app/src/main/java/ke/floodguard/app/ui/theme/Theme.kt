@@ -13,17 +13,19 @@ object FgColors {
     val Border = Color(0xFFDCE2E8)
     val Danger = Color(0xFFB3261E)
 
-    // Road susceptibility on the map: red = High, yellow = Medium, green = Low, grey = no data.
-    const val HIGH_HEX = "#D7261E"
-    const val MEDIUM_HEX = "#F2B705"
-    const val LOW_HEX = "#2E9E48"
-    const val NO_DATA_HEX = "#9AA4AE"
-    val High = Color(0xFFD7261E)
-    val Medium = Color(0xFFF2B705)
-    val Low = Color(0xFF2E9E48)
-    val NoData = Color(0xFF9AA4AE)
+    // Road susceptibility on the map: one calm blue ramp, dark = High, light = Low, grey = no data.
+    // Static "where water tends to collect", so it must never borrow the warm alert colours below, and Low is
+    // never green: a flood app must not paint roads as "safe".
+    const val HIGH_HEX = "#1E3A8A"
+    const val MEDIUM_HEX = "#5B8DEF"
+    const val LOW_HEX = "#B7CCEB"
+    const val NO_DATA_HEX = "#B0B7BF"
+    val High = Color(0xFF1E3A8A)
+    val Medium = Color(0xFF5B8DEF)
+    val Low = Color(0xFFB7CCEB)
+    val NoData = Color(0xFFB0B7BF)
 
-    // Replay alert levels on the map. Deliberately not the susceptibility palette: a different legend shows.
+    // Live and replayed alert levels: the only warm colours in the app, so red always means "alert".
     // "None" is pale so wet roads stand out; "unknown" is dark grey, never a reassuring colour.
     val LEVEL_HEX = listOf("#C9D3DB", "#F2C200", "#F07800", "#B3261E")    // none, watch, warning, severe
     const val UNKNOWN_HEX = "#5F6B76"

@@ -373,7 +373,8 @@ private fun Legend(modifier: Modifier = Modifier) {
                     Text(label, fontSize = 12.sp)
                 }
             }
-            Text("Where water tends to collect. Not a live warning.", fontSize = 11.sp, color = FgColors.Muted)
+            Text("Where water tends to collect. Not a live warning. Low roads are hidden until you turn them on.",
+                fontSize = 11.sp, color = FgColors.Muted)
         }
     }
 }

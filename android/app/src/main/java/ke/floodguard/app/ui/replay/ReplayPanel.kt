@@ -188,7 +188,7 @@ private fun FloodChips(t: ReplayTimeline, date: LocalDate?, onPick: (LocalDate) 
                 leadingIcon = {
                     Icon(if (e.detected) Icons.Default.Check else Icons.Default.Close, contentDescription =
                         if (e.detected) "caught" else "missed", Modifier.size(16.dp),
-                        tint = if (e.detected) FgColors.Low else FgColors.Danger)
+                        tint = if (e.detected) FgColors.Primary else FgColors.Danger)
                 },
                 colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFE3EEF7)),
             )
