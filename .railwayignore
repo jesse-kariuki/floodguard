@@ -1,0 +1,11 @@
+# `railway up` uploads only what the Docker build needs (the repo is ~800 MB of data and notebooks).
+/*
+!/Dockerfile
+!/.dockerignore
+!/railway.json
+!/backend/
+/backend/*
+!/backend/requirements.txt
+!/backend/app/
+!/backend/assets/
+**/__pycache__
